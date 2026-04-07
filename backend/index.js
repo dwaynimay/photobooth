@@ -208,3 +208,21 @@ app.post('/api/templates', upload.single('image'), (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend server listening at http://localhost:${PORT}`);
 });
+
+// Cleanup routines checking 12-hour expiration mapped onto target uploads folder
+setInterval(() => {
+  const cutoff = Date.now() - (12 * 60 * 60 * 1000); // 12 hours
+  if (fs.existsSync(baseUploadsDir)) {
+    const folders = fs.readdirSync(baseUploadsDir);
+    for (const folder of folders) {
+      if (folder.startsWith('session_')) {
+        const folderPath = path.join(baseUploadsDir, folder);
+        const stats = fs.statSync(folderPath);
+        if (stats.mtimeMs < cutoff) {
+          fs.rmSync(folderPath, { recursive: true, force: true });
+          console.log(`[Cleanup] Deleted old session: ${folder}`);
+        }
+      }
+    }
+  }
+}, 60 * 10 * 1000); // run every 10 minutes to verify

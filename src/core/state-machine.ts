@@ -1,12 +1,12 @@
-export type State = 'IDLE' | 'COUNTDOWN' | 'CAPTURE' | 'FRAME_SELECT' | 'PREVIEW' | 'RESET';
+export type State = 'IDLE' | 'SELECT_LAYOUT' | 'PAYMENT' | 'CAPTURE' | 'PREVIEW_STUDIO' | 'FINISH';
 
 export const State = {
   IDLE: 'IDLE',
-  COUNTDOWN: 'COUNTDOWN',
+  SELECT_LAYOUT: 'SELECT_LAYOUT',
+  PAYMENT: 'PAYMENT',
   CAPTURE: 'CAPTURE',
-  FRAME_SELECT: 'FRAME_SELECT',
-  PREVIEW: 'PREVIEW',
-  RESET: 'RESET',
+  PREVIEW_STUDIO: 'PREVIEW_STUDIO',
+  FINISH: 'FINISH'
 } as const;
 
 export type StateChangeCallback = (state: State) => void;

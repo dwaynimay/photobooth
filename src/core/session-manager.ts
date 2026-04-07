@@ -8,6 +8,12 @@ export class SessionManager {
     console.log(`[SessionManager] Image added. Current count: ${this.images.length}`);
   }
 
+  public replaceImage(index: number, base64: string): void {
+    if (index >= 0 && index < this.images.length) {
+      this.images[index] = base64;
+    }
+  }
+
   public getImages(): string[] {
     return this.images;
   }

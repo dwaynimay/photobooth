@@ -1,39 +1,51 @@
-import { DomHelper } from './dom-helper';
 import { State } from '../core';
+import { DomHelper } from './dom-helper';
 
 export class ScreenRenderer {
   private readonly statusElementId: string = 'app-status';
 
   public render(state: State): void {
     let message = '';
+    
+    DomHelper.hide('layout-select-screen');
+    DomHelper.hide('payment-screen');
+    DomHelper.hide('preview-studio-screen');
+    DomHelper.hide('finish-screen');
+    DomHelper.hide('video-container-wrap');
 
     switch (state) {
       case State.IDLE:
-        message = 'Ready! Press button to start.';
-        this.resetView();
+        DomHelper.show('ui-overlay');
+        message = 'Tap anywhere to start!';
         break;
-      case State.COUNTDOWN:
-        message = 'Get ready...';
+      case State.SELECT_LAYOUT:
+        DomHelper.show('layout-select-screen');
+        DomHelper.show('ui-overlay');
+        message = 'Please select a layout (Timeout: 60s)';
+        break;
+      case State.PAYMENT:
+        DomHelper.show('payment-screen');
+        DomHelper.show('ui-overlay');
+        message = 'Awaiting payment...';
         break;
       case State.CAPTURE:
-        message = 'Smile!';
+        DomHelper.show('video-container-wrap');
+        DomHelper.show('ui-overlay');
+        message = 'Get ready!';
         break;
-      case State.FRAME_SELECT:
-        DomHelper.hide('video-container-wrap');
-        DomHelper.hide('preview-container');
-        DomHelper.show('frame-selector');
-        message = 'Pick a frame to continue...';
+      case State.PREVIEW_STUDIO:
+        DomHelper.show('preview-studio-screen');
+        DomHelper.show('ui-overlay');
+        message = 'Studio Dashboard';
         break;
-      case State.PREVIEW:
-        message = 'Reviewing photos...';
-        break;
-      case State.RESET:
-        message = 'Resetting session...';
+      case State.FINISH:
+        DomHelper.show('finish-screen');
+        DomHelper.show('ui-overlay');
+        message = 'Thank you!';
         break;
     }
 
     DomHelper.setText(this.statusElementId, message);
-    console.log(`[ScreenRenderer] State: ${state}, Message: ${message}`);
   }
 
   public updateCountdown(seconds: number): void {
@@ -44,29 +56,8 @@ export class ScreenRenderer {
     DomHelper.setText(this.statusElementId, message);
   }
 
+  // Backwards compatibility for older methods calling this directly
   public renderPreview(images: string[]): void {
-    const container = DomHelper.getElement('preview-container');
-    container.innerHTML = '';
-    
-    images.forEach(imgSrc => {
-      const img = document.createElement('img');
-      img.src = imgSrc;
-      container.appendChild(img);
-    });
-
-    DomHelper.hide('video-container-wrap');
-    DomHelper.show('preview-container');
-  }
-
-  private resetView(): void {
-    try {
-      const container = DomHelper.getElement('preview-container');
-      container.innerHTML = '';
-      DomHelper.hide('preview-container');
-      DomHelper.hide('frame-selector');
-      DomHelper.show('video-container-wrap');
-    } catch (e) {
-      // Element might not exist initially
-    }
+    console.warn('[ScreenRenderer] Legacy renderPreview called');
   }
 }

@@ -11,7 +11,16 @@ export class App {
   private renderer: ScreenRenderer;
 
   private readonly VIDEO_ELEMENT_ID = 'camera-feed';
-  private readonly TRIGGER_BUTTON_ID = 'start-button';
+
+  private templates: any[] = [];
+  private selectedTemplate: any = null;
+  private gridFrame: string = '';
+  private frameType: string = '';
+  
+  private currentTimeoutMs: number = 0;
+  private currentTimeout: any = null;
+  private targetPhotoCount: number = 3;
+  private retakeQuota: number = 0;
 
   constructor() {
     this.stateMachine = new StateMachine();
@@ -24,21 +33,12 @@ export class App {
     this.init();
   }
 
-  private templates: any[] = [];
-  private selectedTemplate: any = null;
-  private gridFrame: string = '';
-  private frameType: string = '';
-
   private async init(): Promise<void> {
     console.log('[App] Initializing...');
-    
-    // Bind state changes to renderer
     this.stateMachine.onStateChange((state) => this.handleStateChange(state));
 
     try {
       this.templates = await this.apiService.getTemplates();
-      this.setupDynamicUI();
-      
       await this.cameraService.initialize(this.VIDEO_ELEMENT_ID);
       this.setupEventListeners();
       this.stateMachine.transition(State.IDLE);
@@ -48,81 +48,109 @@ export class App {
     }
   }
 
-  private setupDynamicUI(): void {
-    const container = document.querySelector('.frame-options');
-    if (container) {
-      container.innerHTML = '';
-      this.templates.forEach(t => {
-        const btn = document.createElement('button');
-        btn.dataset.frame = t.id;
-        btn.innerText = t.name;
-        btn.addEventListener('click', () => {
-           if (this.stateMachine.getState() !== State.FRAME_SELECT) return;
-           this.selectedTemplate = t;
-           this.handleFrameSelect(t.id);
-        });
-        container.appendChild(btn);
-      });
-    }
-  }
-
   private setupEventListeners(): void {
-    const startButton = DomHelper.getElement(this.TRIGGER_BUTTON_ID);
-    startButton.addEventListener('click', () => {
-      if (this.stateMachine.getState() === State.IDLE) {
-        this.startFlow();
+    // Global touch starts sequence overriding Idle
+    document.addEventListener('click', (e) => {
+       if (this.stateMachine.getState() === State.IDLE) {
+          const target = e.target as HTMLElement;
+          // Avoid triggering if they click a button meant for Admin (just in case they somehow share context, but safely it's IDLE anyway)
+          this.stateMachine.transition(State.SELECT_LAYOUT);
+       }
+    });
+
+    const btnMockPayment = DomHelper.getElement('btn-mock-payment');
+    btnMockPayment.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.stateMachine.getState() === State.PAYMENT) {
+        this.clearCurrentTimeout();
+        this.stateMachine.transition(State.CAPTURE);
       }
     });
+
+    const btnFinishPrint = DomHelper.getElement('btn-finish-print');
+    btnFinishPrint.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.stateMachine.getState() === State.PREVIEW_STUDIO) {
+        this.clearCurrentTimeout();
+        this.saveSession();
+      }
+    });
+
+    const btnDone = DomHelper.getElement('btn-done');
+    btnDone.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.stateMachine.getState() === State.FINISH) {
+        this.clearCurrentTimeout();
+        this.resetSession();
+      }
+    });
+  }
+
+  private startTimeout(seconds: number, callback: () => void): void {
+    this.clearCurrentTimeout();
+    this.currentTimeoutMs = seconds * 1000;
+    this.currentTimeout = setTimeout(() => {
+       console.log(`[App] Timeout reached (${seconds}s).`);
+       callback();
+    }, this.currentTimeoutMs);
+  }
+
+  private clearCurrentTimeout(): void {
+    if (this.currentTimeout) {
+      clearTimeout(this.currentTimeout);
+      this.currentTimeout = null;
+    }
   }
 
   private async handleStateChange(state: State): Promise<void> {
     this.renderer.render(state);
 
     switch (state) {
-      case State.COUNTDOWN:
-        await this.runCountdown(3);
+      case State.IDLE:
+        this.clearCurrentTimeout(); // Wait indefinitely
+        break;
+      case State.SELECT_LAYOUT:
+        this.populateLayouts();
+        this.startTimeout(60, () => this.stateMachine.transition(State.IDLE));
+        break;
+      case State.PAYMENT:
+        this.startTimeout(180, () => this.stateMachine.transition(State.IDLE));
         break;
       case State.CAPTURE:
+        this.clearCurrentTimeout();
         await this.runCaptureSequence();
         break;
-      case State.FRAME_SELECT:
-        // Wait for user interaction
+      case State.PREVIEW_STUDIO:
+        this.setupStudioPreview();
+        this.startTimeout(300, () => {
+             this.renderer.updateStatus('Auto-saving due to timeout...');
+             this.saveSession();
+        });
         break;
-      case State.PREVIEW:
-        this.renderer.renderPreview([this.gridFrame]);
-        await this.saveSession();
-        break;
-      case State.RESET:
-        await this.resetSession();
+      case State.FINISH:
+        this.startTimeout(60, () => this.resetSession());
         break;
     }
   }
-
-  private startFlow(): void {
-    this.stateMachine.transition(State.COUNTDOWN);
-  }
-
-  private async handleFrameSelect(frameType: string): Promise<void> {
-    this.frameType = frameType;
-    this.renderer.updateStatus('Applying template...');
-    const images = this.sessionManager.getImages();
-    try {
-      this.gridFrame = await this.captureService.applyTemplate(images, this.selectedTemplate);
-    } catch (e) {
-      console.error('[App] Error saving dynamic canvas:', e);
-    }
-
-    this.stateMachine.transition(State.PREVIEW);
-  }
-
-  private async runCountdown(seconds: number): Promise<void> {
-    let current = seconds;
-    while (current > 0) {
-      this.renderer.updateCountdown(current);
-      await this.delay(1000);
-      current--;
-    }
-    this.stateMachine.transition(State.CAPTURE);
+  
+  private populateLayouts(): void {
+    const container = DomHelper.getElement('layout-options');
+    container.innerHTML = '';
+    this.templates.forEach(t => {
+      const btn = document.createElement('button');
+      btn.dataset.frame = t.id;
+      btn.innerText = `${t.name} (${t.slots.length} Photos)`;
+      btn.addEventListener('click', (e) => {
+         e.stopPropagation();
+         if (this.stateMachine.getState() !== State.SELECT_LAYOUT) return;
+         this.selectedTemplate = t;
+         this.frameType = t.id;
+         this.targetPhotoCount = t.slots.length;
+         this.clearCurrentTimeout();
+         this.stateMachine.transition(State.PAYMENT);
+      });
+      container.appendChild(btn);
+    });
   }
 
   private async runCaptureSequence(): Promise<void> {
@@ -132,17 +160,36 @@ export class App {
       console.error('[App] Failed to start full recording', e);
     }
 
-    const count = 3;
+    for (let i = 0; i < this.targetPhotoCount; i++) {
+        await this.captureSinglePhoto(i + 1, this.targetPhotoCount);
+    }
 
-    for (let i = 0; i < count; i++) {
+    try {
+      const fullVideoBlob = await this.cameraService.stopFullRecording();
+      this.sessionManager.setFullVideo(fullVideoBlob);
+    } catch(e) {
+      console.error('[App] Failed to stop full recording', e);
+    }
+    
+    this.retakeQuota = this.targetPhotoCount;
+    this.renderer.updateStatus('Applying template mapping...');
+    try {
+      this.gridFrame = await this.captureService.applyTemplate(this.sessionManager.getImages(), this.selectedTemplate);
+    } catch (e) {
+      console.error('[App] Error saving dynamic canvas:', e);
+    }
+    this.stateMachine.transition(State.PREVIEW_STUDIO);
+  }
+
+  private async captureSinglePhoto(currentPhotoIndex: number, totalPhotos: number): Promise<void> {
       try {
         this.cameraService.startRecording();
       } catch(e) {
         console.error('[App] Failed to start recording', e);
       }
       
-      for (let s = 3; s > 0; s--) {
-        this.renderer.updateStatus(`Photo ${i + 1}/${count} in ${s}...`);
+      for (let s = 5; s > 0; s--) {
+        this.renderer.updateStatus(`Photo ${currentPhotoIndex}/${totalPhotos} in ${s}...`);
         await this.delay(1000);
       }
       
@@ -157,20 +204,105 @@ export class App {
         console.error('[App] Failed to stop recording', e);
       }
       
-      await this.delay(800); // Wait briefly to show flash message
-    }
+      await this.delay(800); // flash buffer read gap time
+  }
 
-    try {
-      const fullVideoBlob = await this.cameraService.stopFullRecording();
-      this.sessionManager.setFullVideo(fullVideoBlob);
-    } catch(e) {
-      console.error('[App] Failed to stop full recording', e);
-    }
+  private setupStudioPreview(): void {
+     const framesContainer = DomHelper.getElement('studio-frame-options');
+     framesContainer.innerHTML = '';
+     
+     // Only display layouts valid for the selected slot count
+     const compatibleTemplates = this.templates.filter(t => t.slots.length === this.targetPhotoCount);
+     
+     compatibleTemplates.forEach(t => {
+        const btn = document.createElement('button');
+        btn.innerText = t.name;
+        btn.addEventListener('click', async (e) => {
+           e.stopPropagation();
+           this.selectedTemplate = t;
+           this.frameType = t.id;
+           this.renderer.updateStatus('Switching framework...');
+           this.gridFrame = await this.captureService.applyTemplate(this.sessionManager.getImages(), this.selectedTemplate);
+           this.refreshStudioView();
+        });
+        framesContainer.appendChild(btn);
+     });
+     
+     this.refreshStudioView();
+  }
 
-    this.stateMachine.transition(State.FRAME_SELECT);
+  private refreshStudioView(): void {
+     const mainContainer = DomHelper.getElement('main-preview');
+     mainContainer.innerHTML = `<img src="${this.gridFrame}" style="max-height:50vh; width:auto; border:2px solid #ccc; border-radius:8px;" />`;
+     
+     DomHelper.setText('retake-quota-label', `Remaining Retake Quota: ${this.retakeQuota}`);
+     
+     const rawContainer = DomHelper.getElement('raw-photos-list');
+     rawContainer.innerHTML = '';
+     
+     const images = this.sessionManager.getImages();
+     images.forEach((imgSrc, idx) => {
+        const wrapper = document.createElement('div');
+        wrapper.style.display = 'flex';
+        wrapper.style.flexDirection = 'column';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.width = '100px';
+        
+        const img = document.createElement('img');
+        img.src = imgSrc;
+        img.style.width = '100%';
+        img.style.borderRadius = '4px';
+        img.style.border = '1px solid #999';
+        
+        const btn = document.createElement('button');
+        btn.innerText = 'Retake';
+        btn.style.marginTop = '5px';
+        btn.disabled = this.retakeQuota <= 0;
+        
+        btn.addEventListener('click', async (e) => {
+           e.stopPropagation();
+           if (this.retakeQuota > 0) {
+              await this.executeRetake(idx);
+           }
+        });
+        
+        wrapper.appendChild(img);
+        wrapper.appendChild(btn);
+        rawContainer.appendChild(wrapper);
+     });
+  }
+
+  private async executeRetake(index: number): Promise<void> {
+      this.clearCurrentTimeout(); 
+      this.retakeQuota--;
+      
+      DomHelper.hide('preview-studio-screen');
+      DomHelper.show('video-container-wrap');
+      
+      for (let s = 5; s > 0; s--) {
+        this.renderer.updateStatus(`Retaking Photo ${index + 1} in ${s}...`);
+        await this.delay(1000);
+      }
+      
+      this.renderer.updateStatus(`📸 JEPRET!`);
+      const imageData = this.captureService.captureFrame(this.VIDEO_ELEMENT_ID);
+      
+      this.sessionManager.replaceImage(index, imageData);
+      await this.delay(800);
+      
+      this.renderer.updateStatus('Applying template...');
+      this.gridFrame = await this.captureService.applyTemplate(this.sessionManager.getImages(), this.selectedTemplate);
+      
+      DomHelper.hide('video-container-wrap');
+      DomHelper.show('preview-studio-screen');
+      this.refreshStudioView();
+      
+      this.startTimeout(300, () => this.saveSession());
   }
 
   private async saveSession(): Promise<void> {
+    this.stateMachine.transition(State.FINISH);
+    this.renderer.updateStatus('Uploading to remote node...');
     const images = this.sessionManager.getImages();
     const videos = this.sessionManager.getVideos();
     const fullVideo = this.sessionManager.getFullVideo();
@@ -178,17 +310,15 @@ export class App {
       if (videos.length > 0 && this.gridFrame && this.frameType && fullVideo) {
         await this.apiService.saveSession(images, this.gridFrame, videos, this.frameType, fullVideo);
       }
-      await this.delay(2000); 
-      this.stateMachine.transition(State.RESET);
+      this.renderer.updateStatus('Done print!');
     } catch (error) {
       console.error('[App] Save failed:', error);
-      this.stateMachine.transition(State.RESET);
+      this.renderer.updateStatus('Network failure during prints.');
     }
   }
 
-  private async resetSession(): Promise<void> {
+  private resetSession(): void {
     this.sessionManager.reset();
-    await this.delay(1000);
     this.stateMachine.transition(State.IDLE);
   }
 

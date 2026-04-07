@@ -13,14 +13,31 @@
         <video id="camera-feed" autoplay playsinline muted style="display: none;"></video>
         <canvas id="composited-canvas" width="1280" height="720"></canvas>
       </div>
-      <div id="preview-container" class="preview-layout" style="display: none;"></div>
-      <div id="frame-selector" style="display: none;" class="frame-layout">
-        <h2>Select Your Frame</h2>
-        <div class="frame-options">
-          <button data-frame="polaroid">Polaroid Style</button>
-          <button data-frame="black-elegant">Black Elegant</button>
-          <button data-frame="film-strip">Film Strip</button>
-        </div>
+      <div id="layout-select-screen" class="frame-layout" style="display: none;">
+        <h2>Select Layout</h2>
+        <div id="layout-options" class="frame-options"></div>
+      </div>
+      
+      <div id="payment-screen" class="frame-layout" style="display: none;">
+        <h2>Payment</h2>
+        <div class="qr-placeholder" style="width:200px; height:200px; background:#ddd; margin: 0 auto; display:flex; align-items:center; justify-content:center; color:#333;">QR CODE</div>
+        <button id="btn-mock-payment" style="margin-top:20px; font-size:1.2em; padding:10px 20px; cursor:pointer;">Simulate Payment Success</button>
+      </div>
+
+      <div id="preview-studio-screen" class="frame-layout" style="display: none; max-width:800px;">
+        <h2>Studio Preview</h2>
+        <div id="main-preview" class="preview-layout"></div>
+        <div id="raw-photos-list" style="display:flex; justify-content:center; gap: 10px; margin-bottom: 20px;"></div>
+        <p id="retake-quota-label" style="font-weight: bold; margin-bottom: 10px;">Remaining Retake Quota: 0</p>
+        <div id="studio-frame-options" class="frame-options"></div>
+        <button id="btn-finish-print" style="margin-top: 20px; font-size:1.2em; padding:10px 20px; cursor:pointer;">Finish & Print</button>
+      </div>
+
+      <div id="finish-screen" class="frame-layout" style="display: none;">
+        <h2>Printing Session...</h2>
+        <p>Please wait while we process your physical copy.</p>
+        <div class="qr-placeholder" style="width:200px; height:200px; background:#ddd; margin: 0 auto; display:flex; align-items:center; justify-content:center; color:#333;">DOWNLOAD QR</div>
+        <button id="btn-done" style="margin-top:20px; font-size:1.2em; padding:10px 20px; cursor:pointer;">Done</button>
       </div>
       <div id="ui-overlay">
         <p id="app-status">Loading...</p>
