@@ -14,11 +14,11 @@ export class DomHelper {
 
   public static show(id: string): void {
     const element = this.getElement(id);
-    element.style.display = 'block';
+    element.style.display = "";
   }
 
   public static hide(id: string): void {
     const element = this.getElement(id);
-    element.style.display = 'none';
+    element.style.display = "none";
   }
 }

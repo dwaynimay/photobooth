@@ -36,10 +36,14 @@ body {
   background: #000;
 }
 
-video {
+video, #composited-canvas {
   width: 100%;
   max-width: 800px;
   display: block;
+}
+
+#composited-canvas {
+  background: #000;
 }
 
 #start-button {
@@ -54,6 +58,39 @@ video {
   transition: background-color 0.25s;
 }
 
+.frame-layout {
+  margin: 20px auto;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 600px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  color: #333;
+}
+
+.frame-options {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.frame-options button {
+  padding: 10px 20px;
+  font-size: 1em;
+  font-weight: bold;
+  background-color: #f0f0f0;
+  border: 2px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.frame-options button:hover {
+  background-color: #646cff;
+  color: white;
+  border-color: #646cff;
+}
 #start-button:hover {
   background-color: #535bf2;
 }

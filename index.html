@@ -10,9 +10,18 @@
     <div id="app">
       <h1>Photobooth Kiosk</h1>
       <div class="video-container" id="video-container-wrap">
-        <video id="camera-feed" autoplay playsinline muted></video>
+        <video id="camera-feed" autoplay playsinline muted style="display: none;"></video>
+        <canvas id="composited-canvas" width="1280" height="720"></canvas>
       </div>
       <div id="preview-container" class="preview-layout" style="display: none;"></div>
+      <div id="frame-selector" style="display: none;" class="frame-layout">
+        <h2>Select Your Frame</h2>
+        <div class="frame-options">
+          <button data-frame="polaroid">Polaroid Style</button>
+          <button data-frame="black-elegant">Black Elegant</button>
+          <button data-frame="film-strip">Film Strip</button>
+        </div>
+      </div>
       <div id="ui-overlay">
         <p id="app-status">Loading...</p>
         <button id="start-button">Start Session</button>

@@ -36,6 +36,7 @@ export class App {
       this.stateMachine.transition(State.IDLE);
     } catch (error) {
       console.error('[App] Failed to initialize:', error);
+      this.renderer.updateStatus('Kamera gagal diakses.');
     }
   }
 
@@ -45,6 +46,16 @@ export class App {
       if (this.stateMachine.getState() === State.IDLE) {
         this.startFlow();
       }
+    });
+
+    const frameButtons = document.querySelectorAll('.frame-options button');
+    frameButtons.forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        if (this.stateMachine.getState() !== State.FRAME_SELECT) return;
+        const target = e.target as HTMLButtonElement;
+        const frameType = target.getAttribute('data-frame') || 'polaroid';
+        await this.handleFrameSelect(frameType);
+      });
     });
   }
 
@@ -57,6 +68,9 @@ export class App {
         break;
       case State.CAPTURE:
         await this.runCaptureSequence(3);
+        break;
+      case State.FRAME_SELECT:
+        // Wait for user interaction
         break;
       case State.PREVIEW:
         this.renderer.renderPreview(this.sessionManager.getImages());
@@ -83,7 +97,19 @@ export class App {
   }
 
   private async runCaptureSequence(count: number): Promise<void> {
+    try {
+      this.cameraService.startFullRecording();
+    } catch(e) {
+      console.error('[App] Failed to start full recording', e);
+    }
+
     for (let i = 0; i < count; i++) {
+      try {
+        this.cameraService.startRecording();
+      } catch(e) {
+        console.error('[App] Failed to start recording', e);
+      }
+      
       for (let s = 3; s > 0; s--) {
         this.renderer.updateStatus(`Photo ${i + 1}/${count} in ${s}...`);
         await this.delay(1000);
@@ -92,16 +118,55 @@ export class App {
       this.renderer.updateStatus(`📸 JEPRET!`);
       const imageData = this.captureService.captureFrame(this.VIDEO_ELEMENT_ID);
       this.sessionManager.addImage(imageData);
+
+      try {
+        const videoBlob = await this.cameraService.stopRecording();
+        this.sessionManager.addVideo(videoBlob);
+      } catch(e) {
+        console.error('[App] Failed to stop recording', e);
+      }
+      
       await this.delay(800); // Wait briefly to show flash message
     }
+
+    try {
+      const fullVideoBlob = await this.cameraService.stopFullRecording();
+      this.sessionManager.setFullVideo(fullVideoBlob);
+    } catch(e) {
+      console.error('[App] Failed to stop full recording', e);
+    }
+
+    this.stateMachine.transition(State.FRAME_SELECT);
+  }
+
+  private gridFrame: string = '';
+  private frameType: string = '';
+
+  private async handleFrameSelect(frameType: string): Promise<void> {
+    this.renderer.updateStatus('Applying grid frame...');
+    const images = this.sessionManager.getImages();
+    
+    try {
+      this.frameType = frameType;
+      this.gridFrame = await this.captureService.generateGridFrame(images, frameType);
+      
+      this.renderer.renderPreview([this.gridFrame]);
+    } catch(e) {
+      console.error('[App] Error saving session:', e);
+    }
+
     this.stateMachine.transition(State.PREVIEW);
   }
 
   private async saveSession(): Promise<void> {
     const images = this.sessionManager.getImages();
+    const videos = this.sessionManager.getVideos();
+    const fullVideo = this.sessionManager.getFullVideo();
     try {
-      await this.apiService.saveImages(images);
-      await this.delay(2000); // Let user see "Reviewing" state
+      if (videos.length > 0 && this.gridFrame && this.frameType && fullVideo) {
+        await this.apiService.saveSession(images, this.gridFrame, videos, this.frameType, fullVideo);
+      }
+      await this.delay(2000); 
       this.stateMachine.transition(State.RESET);
     } catch (error) {
       console.error('[App] Save failed:', error);

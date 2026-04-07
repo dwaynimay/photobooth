@@ -18,6 +18,12 @@ export class ScreenRenderer {
       case State.CAPTURE:
         message = 'Smile!';
         break;
+      case State.FRAME_SELECT:
+        DomHelper.hide('video-container-wrap');
+        DomHelper.hide('preview-container');
+        DomHelper.show('frame-selector');
+        message = 'Pick a frame to continue...';
+        break;
       case State.PREVIEW:
         message = 'Reviewing photos...';
         break;
@@ -57,6 +63,7 @@ export class ScreenRenderer {
       const container = DomHelper.getElement('preview-container');
       container.innerHTML = '';
       DomHelper.hide('preview-container');
+      DomHelper.hide('frame-selector');
       DomHelper.show('video-container-wrap');
     } catch (e) {
       // Element might not exist initially

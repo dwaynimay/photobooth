@@ -1,9 +1,10 @@
-export type State = 'IDLE' | 'COUNTDOWN' | 'CAPTURE' | 'PREVIEW' | 'RESET';
+export type State = 'IDLE' | 'COUNTDOWN' | 'CAPTURE' | 'FRAME_SELECT' | 'PREVIEW' | 'RESET';
 
 export const State = {
   IDLE: 'IDLE',
   COUNTDOWN: 'COUNTDOWN',
   CAPTURE: 'CAPTURE',
+  FRAME_SELECT: 'FRAME_SELECT',
   PREVIEW: 'PREVIEW',
   RESET: 'RESET',
 } as const;
