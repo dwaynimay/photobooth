@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>photobooth</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Photobooth Kiosk</h1>
+      <div class="video-container" id="video-container-wrap">
+        <video id="camera-feed" autoplay playsinline muted></video>
+      </div>
+      <div id="preview-container" class="preview-layout" style="display: none;"></div>
+      <div id="ui-overlay">
+        <p id="app-status">Loading...</p>
+        <button id="start-button">Start Session</button>
+      </div>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
