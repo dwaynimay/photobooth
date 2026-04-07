@@ -1,6 +1,12 @@
 export class ApiService {
   private readonly BASE_URL = 'http://localhost:3000'; // Target backend location
 
+  public async getTemplates(): Promise<any[]> {
+    const response = await fetch(`${this.BASE_URL}/api/frames`);
+    if (!response.ok) throw new Error('[ApiService] Failed to fetch templates');
+    return response.json();
+  }
+
   public async saveSession(images: string[], gridFrame: string, videos: Blob[], frameType: string, fullVideo: Blob): Promise<void> {
     try {
       const formData = new FormData();

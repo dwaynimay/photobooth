@@ -24,6 +24,11 @@ export class App {
     this.init();
   }
 
+  private templates: any[] = [];
+  private selectedTemplate: any = null;
+  private gridFrame: string = '';
+  private frameType: string = '';
+
   private async init(): Promise<void> {
     console.log('[App] Initializing...');
     
@@ -31,6 +36,9 @@ export class App {
     this.stateMachine.onStateChange((state) => this.handleStateChange(state));
 
     try {
+      this.templates = await this.apiService.getTemplates();
+      this.setupDynamicUI();
+      
       await this.cameraService.initialize(this.VIDEO_ELEMENT_ID);
       this.setupEventListeners();
       this.stateMachine.transition(State.IDLE);
@@ -40,22 +48,30 @@ export class App {
     }
   }
 
+  private setupDynamicUI(): void {
+    const container = document.querySelector('.frame-options');
+    if (container) {
+      container.innerHTML = '';
+      this.templates.forEach(t => {
+        const btn = document.createElement('button');
+        btn.dataset.frame = t.id;
+        btn.innerText = t.name;
+        btn.addEventListener('click', () => {
+           if (this.stateMachine.getState() !== State.FRAME_SELECT) return;
+           this.selectedTemplate = t;
+           this.handleFrameSelect(t.id);
+        });
+        container.appendChild(btn);
+      });
+    }
+  }
+
   private setupEventListeners(): void {
     const startButton = DomHelper.getElement(this.TRIGGER_BUTTON_ID);
     startButton.addEventListener('click', () => {
       if (this.stateMachine.getState() === State.IDLE) {
         this.startFlow();
       }
-    });
-
-    const frameButtons = document.querySelectorAll('.frame-options button');
-    frameButtons.forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        if (this.stateMachine.getState() !== State.FRAME_SELECT) return;
-        const target = e.target as HTMLButtonElement;
-        const frameType = target.getAttribute('data-frame') || 'polaroid';
-        await this.handleFrameSelect(frameType);
-      });
     });
   }
 
@@ -67,13 +83,13 @@ export class App {
         await this.runCountdown(3);
         break;
       case State.CAPTURE:
-        await this.runCaptureSequence(3);
+        await this.runCaptureSequence();
         break;
       case State.FRAME_SELECT:
         // Wait for user interaction
         break;
       case State.PREVIEW:
-        this.renderer.renderPreview(this.sessionManager.getImages());
+        this.renderer.renderPreview([this.gridFrame]);
         await this.saveSession();
         break;
       case State.RESET:
@@ -86,6 +102,19 @@ export class App {
     this.stateMachine.transition(State.COUNTDOWN);
   }
 
+  private async handleFrameSelect(frameType: string): Promise<void> {
+    this.frameType = frameType;
+    this.renderer.updateStatus('Applying template...');
+    const images = this.sessionManager.getImages();
+    try {
+      this.gridFrame = await this.captureService.applyTemplate(images, this.selectedTemplate);
+    } catch (e) {
+      console.error('[App] Error saving dynamic canvas:', e);
+    }
+
+    this.stateMachine.transition(State.PREVIEW);
+  }
+
   private async runCountdown(seconds: number): Promise<void> {
     let current = seconds;
     while (current > 0) {
@@ -96,12 +125,14 @@ export class App {
     this.stateMachine.transition(State.CAPTURE);
   }
 
-  private async runCaptureSequence(count: number): Promise<void> {
+  private async runCaptureSequence(): Promise<void> {
     try {
       this.cameraService.startFullRecording();
     } catch(e) {
       console.error('[App] Failed to start full recording', e);
     }
+
+    const count = 3;
 
     for (let i = 0; i < count; i++) {
       try {
@@ -137,25 +168,6 @@ export class App {
     }
 
     this.stateMachine.transition(State.FRAME_SELECT);
-  }
-
-  private gridFrame: string = '';
-  private frameType: string = '';
-
-  private async handleFrameSelect(frameType: string): Promise<void> {
-    this.renderer.updateStatus('Applying grid frame...');
-    const images = this.sessionManager.getImages();
-    
-    try {
-      this.frameType = frameType;
-      this.gridFrame = await this.captureService.generateGridFrame(images, frameType);
-      
-      this.renderer.renderPreview([this.gridFrame]);
-    } catch(e) {
-      console.error('[App] Error saving session:', e);
-    }
-
-    this.stateMachine.transition(State.PREVIEW);
   }
 
   private async saveSession(): Promise<void> {

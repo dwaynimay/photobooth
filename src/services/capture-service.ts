@@ -77,4 +77,68 @@ export class CaptureService {
       }
     });
   }
+
+  public applyTemplate(base64Images: string[], template: any): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = template.width;
+      canvas.height = template.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject('No canvas context');
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      let loadedCount = 0;
+      
+      const finishRender = () => {
+         const overlayImg = new Image();
+         overlayImg.crossOrigin = 'Anonymous';
+         overlayImg.onload = () => {
+             ctx.drawImage(overlayImg, 0, 0, template.width, template.height);
+             resolve(canvas.toDataURL('image/jpeg', 1.0));
+         };
+         overlayImg.onerror = () => {
+             resolve(canvas.toDataURL('image/jpeg', 1.0));
+         };
+         overlayImg.src = `http://localhost:3000/templates/${template.image}`;
+      };
+
+      for (let i = 0; i < template.slots.length; i++) {
+        if (!base64Images[i]) {
+            loadedCount++;
+            if (loadedCount === template.slots.length) finishRender();
+            continue;
+        }
+        const img = new Image();
+        img.onload = () => {
+          let sWidth = img.naturalWidth;
+          let sHeight = img.naturalHeight;
+           
+          const slot = template.slots[i];
+          const targetRatio = slot.w / slot.h;
+          const srcRatio = sWidth / sHeight;
+          let sx = 0;
+          let sy = 0;
+          
+          if (srcRatio > targetRatio) {
+            sWidth = sHeight * targetRatio;
+            sx = (img.naturalWidth - sWidth) / 2;
+          } else {
+            sHeight = sWidth / targetRatio;
+            sy = (img.naturalHeight - sHeight) / 2;
+          }
+
+          ctx.drawImage(img, sx, sy, sWidth, sHeight, slot.x, slot.y, slot.w, slot.h);
+          
+          loadedCount++;
+          if (loadedCount === template.slots.length) {
+            finishRender();
+          }
+        };
+        img.onerror = reject;
+        img.src = base64Images[i];
+      }
+    });
+  }
 }

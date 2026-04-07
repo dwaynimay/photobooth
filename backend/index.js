@@ -7,10 +7,52 @@ const multer = require('multer');
 const app = express();
 const PORT = 3000;
 
+// Seed Templates
+const templatesDir = path.join(__dirname, 'templates');
+if (!fs.existsSync(templatesDir)) {
+  fs.mkdirSync(templatesDir);
+}
+const configPath = path.join(templatesDir, 'config.json');
+if (!fs.existsSync(configPath)) {
+  const defaultTemplates = [
+    {
+      "id": "strip-3",
+      "name": "Classic Strip",
+      "image": "strip.png",
+      "width": 600,
+      "height": 1800,
+      "slots": [
+        {"x": 50, "y": 50, "w": 500, "h": 375},
+        {"x": 50, "y": 475, "w": 500, "h": 375},
+        {"x": 50, "y": 900, "w": 500, "h": 375}
+      ]
+    },
+    {
+      "id": "grid-2x2",
+      "name": "Square Grid",
+      "image": "grid.png",
+      "width": 1200,
+      "height": 1200,
+      "slots": [
+        {"x": 50, "y": 50, "w": 525, "h": 525},
+        {"x": 625, "y": 50, "w": 525, "h": 525},
+        {"x": 50, "y": 625, "w": 525, "h": 525},
+        {"x": 625, "y": 625, "w": 525, "h": 525}
+      ]
+    }
+  ];
+  fs.writeFileSync(configPath, JSON.stringify(defaultTemplates, null, 2));
+}
+
 // Middleware
 app.use(cors());
-// express.json is no longer the main payload handler for /save since we use multer
 app.use(express.json({ limit: '50mb' }));
+app.use('/templates', express.static(templatesDir));
+
+app.get('/api/frames', (req, res) => {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  res.json(config);
+});
 
 // Set up Multer (store files in memory so we can orchestrate the custom folder logic)
 const upload = multer({ storage: multer.memoryStorage() });
@@ -75,32 +117,50 @@ app.post('/save', upload.any(), (req, res) => {
     }
 
     // 4. Generate Video Grid Frame via FFMPEG
-    if (videoPaths.length === 3 && gridFrame) {
+    if (videoPaths.length > 0 && gridFrame) {
       const ffmpeg = require('fluent-ffmpeg');
       const gridVideoPath = path.join(sessionDir, 'video_grid_frame.webm');
       const gridFramePath = path.join(sessionDir, 'grid_frame.jpg');
 
-      console.log('Generating FFMPEG video grid...');
-      ffmpeg()
-        .input(gridFramePath) // [0:v]
-        .input(videoPaths[0]) // [1:v]
-        .input(videoPaths[1]) // [2:v]
-        .input(videoPaths[2]) // [3:v]
-        .complexFilter([
-          // Max fit equivalent crop for 600x400
-          "[1:v]scale='max(600,a*400)':'max(400,600/a)',crop=600:400[vid1]",
-          "[2:v]scale='max(600,a*400)':'max(400,600/a)',crop=600:400[vid2]",
-          "[3:v]scale='max(600,a*400)':'max(400,600/a)',crop=600:400[vid3]",
-          "[0:v][vid1]overlay=40:120[tmp1]",
-          "[tmp1][vid2]overlay=40:560[tmp2]",
-          "[tmp2][vid3]overlay=40:1000[out]"
-        ])
-        .outputOptions(['-map [out]'])
-        .save(gridVideoPath)
-        .on('end', () => console.log('Video grid successfully created: ' + gridVideoPath))
-        .on('error', (err) => console.error('FFMPEG generation error:', err));
-      
-      savedFiles.push('video_grid_frame.webm');
+      console.log('Generating Dynamic FFMPEG video grid...');
+      let command = ffmpeg().input(gridFramePath); // [0:v]
+      videoPaths.forEach(vp => {
+        command = command.input(vp); // [1:v], [2:v], ...
+      });
+
+      const configPathLocal = path.join(__dirname, 'templates', 'config.json');
+      const config = JSON.parse(fs.readFileSync(configPathLocal, 'utf8'));
+      const template = config.find(t => t.id === frameType);
+
+      if (template) {
+         let filterString = [];
+         
+         videoPaths.forEach((vp, idx) => {
+            const slot = template.slots[idx];
+            if (slot) {
+               // max(W,a*H):max(H,W/a),crop=W:H
+               filterString.push(`[${idx+1}:v]scale='max(${slot.w},a*${slot.h})':'max(${slot.h},${slot.w}/a)',crop=${slot.w}:${slot.h}[vid${idx+1}]`);
+            }
+         });
+         
+         let lastOverlay = '[0:v]';
+         videoPaths.forEach((vp, idx) => {
+            const slot = template.slots[idx];
+            if (slot) {
+               const nextTarget = (idx === videoPaths.length - 1) ? '[out]' : `[tmp${idx+1}]`;
+               filterString.push(`${lastOverlay}[vid${idx+1}]overlay=${slot.x}:${slot.y}${nextTarget}`);
+               lastOverlay = `[tmp${idx+1}]`;
+            }
+         });
+
+         command.complexFilter(filterString)
+            .outputOptions(['-map [out]'])
+            .save(gridVideoPath)
+            .on('end', () => console.log('Video grid successfully created: ' + gridVideoPath))
+            .on('error', (err) => console.error('FFMPEG generation error:', err));
+         
+         savedFiles.push('video_grid_frame.webm');
+      }
     }
 
     console.log(`Successfully saved session to ${sessionDirName} (${savedFiles.length} outputs).`);
@@ -108,6 +168,40 @@ app.post('/save', upload.any(), (req, res) => {
   } catch (error) {
     console.error('Error saving session:', error);
     res.status(500).json({ error: 'Failed to save session' });
+  }
+});
+
+app.post('/api/templates', upload.single('image'), (req, res) => {
+  try {
+    const configData = JSON.parse(req.body.config);
+    const imageFile = req.file;
+
+    if (!imageFile || !configData) {
+      return res.status(400).json({ error: 'Missing image or config' });
+    }
+
+    const filename = `template_${Date.now()}.png`;
+    const imagePath = path.join(__dirname, 'templates', filename);
+    fs.writeFileSync(imagePath, imageFile.buffer);
+
+    configData.image = filename;
+
+    const templatesConfPath = path.join(__dirname, 'templates', 'config.json');
+    let templatesArray = [];
+    if (fs.existsSync(templatesConfPath)) {
+      templatesArray = JSON.parse(fs.readFileSync(templatesConfPath, 'utf8'));
+    }
+    
+    // Remove if existing ID matched (overwrite feature)
+    templatesArray = templatesArray.filter(t => t.id !== configData.id);
+    templatesArray.push(configData);
+    
+    fs.writeFileSync(templatesConfPath, JSON.stringify(templatesArray, null, 2));
+    console.log(`[Admin] Custom Template ${configData.id} saved.`);
+    res.status(200).json({ message: 'Template saved successfully' });
+  } catch (error) {
+    console.error('Template save error:', error);
+    res.status(500).json({ error: 'Failed to save template' });
   }
 });
 

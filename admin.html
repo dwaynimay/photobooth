@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Studio | Photobooth</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
+    .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+    .toolbar input, .toolbar button { margin-right: 10px; padding: 8px; }
+    .toolbar button { cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    .toolbar button.secondary { background: #6c757d; }
+    canvas { cursor: crosshair; display: block; margin-top: 10px; border: 1px solid #ddd; background: #eee; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Create Template</h1>
+    <div class="toolbar">
+      <input type="text" id="tpl-id" placeholder="Template ID (e.g. grid-9)" />
+      <input type="text" id="tpl-name" placeholder="Template Name" />
+      <input type="file" id="tpl-image" accept="image/png, image/jpeg" />
+      <button id="btn-clear" class="secondary">Clear Slots</button>
+      <button id="btn-autodetect" type="button" disabled class="secondary">Auto-Detect Slots</button>
+      <button id="btn-save">Save Template</button>
+    </div>
+    <canvas id="editor-canvas" style="display: none;"></canvas>
+  </div>
+  <script type="module" src="/src/admin.ts"></script>
+</body>
+</html>
