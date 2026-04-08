@@ -136,16 +136,26 @@ export class App {
   private populateLayouts(): void {
     const container = DomHelper.getElement('layout-options');
     container.innerHTML = '';
-    this.templates.forEach(t => {
+    
+    // Extract unique photo counts from available templates
+    const availableCounts = Array.from(new Set(this.templates.map(t => t.slots.length))).sort((a, b) => a - b);
+    
+    availableCounts.forEach(count => {
       const btn = document.createElement('button');
-      btn.dataset.frame = t.id;
-      btn.innerText = `${t.name} (${t.slots.length} Photos)`;
+      btn.innerText = `${count} Photos`;
       btn.addEventListener('click', (e) => {
          e.stopPropagation();
          if (this.stateMachine.getState() !== State.SELECT_LAYOUT) return;
-         this.selectedTemplate = t;
-         this.frameType = t.id;
-         this.targetPhotoCount = t.slots.length;
+         
+         this.targetPhotoCount = count;
+         
+         // Pre-select a default frame of that size for the preview phase
+         const defaultTemp = this.templates.find(t => t.slots.length === count);
+         if (defaultTemp) {
+            this.selectedTemplate = defaultTemp;
+            this.frameType = defaultTemp.id;
+         }
+         
          this.clearCurrentTimeout();
          this.stateMachine.transition(State.PAYMENT);
       });
