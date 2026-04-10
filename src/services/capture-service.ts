@@ -1,3 +1,5 @@
+import type { Template } from '../types';
+
 export class CaptureService {
   public captureFrame(videoElementId: string): string {
     const video = document.getElementById(videoElementId) as HTMLVideoElement;
@@ -11,15 +13,17 @@ export class CaptureService {
     
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
-    console.log('[CaptureService] Raw frame captured directly.');
+    if (import.meta.env.DEV) console.log('[CaptureService] Raw frame captured directly.');
     return dataUrl;
   }
 
-  public generateGridFrame(base64Images: string[], frameType: string): Promise<string> {
+  // TODO: `generateGridFrame` is a legacy layout generator.
+  // It should be deprecated in favor of `applyTemplate`, or updated to align with the new Template data structures.
+  public generateGridFrame(base64Images: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      if (!ctx) return reject('No canvas context');
+      if (!ctx) return reject(new Error('No canvas context'));
 
       const imgWidth = 600;
       const imgHeight = 400;
@@ -30,10 +34,14 @@ export class CaptureService {
       canvas.width = imgWidth + (padding * 2);
       canvas.height = topPadding + (imgHeight * 3) + (padding * 2) + bottomPadding;
 
-      ctx.fillStyle = frameType === 'black-elegant' ? '#000000' : (frameType === 'polaroid' ? '#FFFFFF' : '#222222');
+      ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       let loadedCount = 0;
+
+      if (base64Images.length === 0) {
+          return resolve(canvas.toDataURL('image/jpeg', 1.0));
+      }
 
       for (let i = 0; i < base64Images.length; i++) {
         const img = new Image();
@@ -60,31 +68,25 @@ export class CaptureService {
           loadedCount++;
           if (loadedCount === base64Images.length) {
             ctx.textAlign = 'center';
-            if (frameType === 'black-elegant') {
-              ctx.fillStyle = '#D4AF37';
-              ctx.font = 'bold 48px Arial';
-              ctx.fillText('ELEGANT', canvas.width / 2, 80);
-            } else {
-              ctx.fillStyle = frameType === 'polaroid' ? '#000000' : '#FFFFFF';
-              ctx.font = 'bold 48px Arial';
-              ctx.fillText('✨ PHOTOBOOTH ✨', canvas.width / 2, 80);
-            }
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 48px Arial';
+            ctx.fillText('✨ PHOTOBOOTH ✨', canvas.width / 2, 80);
             resolve(canvas.toDataURL('image/jpeg', 1.0));
           }
         };
-        img.onerror = reject;
+        img.onerror = () => reject(new Error('Failed to load image for legacy grid'));
         img.src = base64Images[i];
       }
     });
   }
 
-  public applyTemplate(base64Images: string[], template: any): Promise<string> {
+  public applyTemplate(base64Images: string[], template: Template): Promise<string> {
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
       canvas.width = template.width;
       canvas.height = template.height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return reject('No canvas context');
+      if (!ctx) return reject(new Error('No canvas context'));
 
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -103,6 +105,11 @@ export class CaptureService {
          };
          overlayImg.src = `http://localhost:3000/templates/${template.image}`;
       };
+
+      if (template.slots.length === 0) {
+          finishRender();
+          return;
+      }
 
       for (let i = 0; i < template.slots.length; i++) {
         if (!base64Images[i]) {
@@ -136,7 +143,7 @@ export class CaptureService {
             finishRender();
           }
         };
-        img.onerror = reject;
+        img.onerror = () => reject(new Error('Failed to load image for slot'));
         img.src = base64Images[i];
       }
     });

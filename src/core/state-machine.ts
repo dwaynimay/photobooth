@@ -1,26 +1,19 @@
-export type State = 'IDLE' | 'SELECT_LAYOUT' | 'PAYMENT' | 'CAPTURE' | 'PREVIEW_STUDIO' | 'FINISH';
+import type { AppStep } from '../types';
 
-export const State = {
-  IDLE: 'IDLE',
-  SELECT_LAYOUT: 'SELECT_LAYOUT',
-  PAYMENT: 'PAYMENT',
-  CAPTURE: 'CAPTURE',
-  PREVIEW_STUDIO: 'PREVIEW_STUDIO',
-  FINISH: 'FINISH'
-} as const;
-
-export type StateChangeCallback = (state: State) => void;
+export type StateChangeCallback = (state: AppStep) => void;
 
 export class StateMachine {
-  private currentState: State = State.IDLE;
+  private currentState: AppStep = 'HOME';
   private listeners: StateChangeCallback[] = [];
 
-  public getState(): State {
+  public getState(): AppStep {
     return this.currentState;
   }
 
-  public transition(newState: State): void {
-    console.log(`[StateMachine] Transition: ${this.currentState} -> ${newState}`);
+  public transition(newState: AppStep): void {
+    if (import.meta.env.DEV) {
+      console.log(`[StateMachine] Transition: ${this.currentState} -> ${newState}`);
+    }
     this.currentState = newState;
     this.notifyListeners();
   }

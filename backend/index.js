@@ -3,81 +3,86 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const ffmpeg = require('fluent-ffmpeg');
 
-const app = express();
 const PORT = 3000;
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+const SESSION_EXPIRY_MS = 12 * 60 * 60 * 1000;
+const BASE64_IMAGE_PREFIX = /^data:image\/\w+;base64,/;
 
-// Seed Templates
+const log = {
+  info: (msg) => console.log(`[${new Date().toISOString()}] INFO: ${msg}`),
+  error: (msg) => console.error(`[${new Date().toISOString()}] ERROR: ${msg}`),
+};
+
 const templatesDir = path.join(__dirname, 'templates');
-if (!fs.existsSync(templatesDir)) {
-  fs.mkdirSync(templatesDir);
-}
 const configPath = path.join(templatesDir, 'config.json');
-if (!fs.existsSync(configPath)) {
-  const defaultTemplates = [
-    {
-      "id": "strip-3",
-      "name": "Classic Strip",
-      "image": "strip.png",
-      "width": 600,
-      "height": 1800,
-      "slots": [
-        {"x": 50, "y": 50, "w": 500, "h": 375},
-        {"x": 50, "y": 475, "w": 500, "h": 375},
-        {"x": 50, "y": 900, "w": 500, "h": 375}
-      ]
-    },
-    {
-      "id": "grid-2x2",
-      "name": "Square Grid",
-      "image": "grid.png",
-      "width": 1200,
-      "height": 1200,
-      "slots": [
-        {"x": 50, "y": 50, "w": 525, "h": 525},
-        {"x": 625, "y": 50, "w": 525, "h": 525},
-        {"x": 50, "y": 625, "w": 525, "h": 525},
-        {"x": 625, "y": 625, "w": 525, "h": 525}
-      ]
-    }
-  ];
-  fs.writeFileSync(configPath, JSON.stringify(defaultTemplates, null, 2));
-}
-
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use('/templates', express.static(templatesDir));
-
-app.get('/api/frames', (req, res) => {
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  res.json(config);
-});
-
-// Set up Multer (store files in memory so we can orchestrate the custom folder logic)
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Ensure root uploads directory exists
 const baseUploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(baseUploadsDir)) {
-  fs.mkdirSync(baseUploadsDir);
+
+function initializeDirectories() {
+  if (!fs.existsSync(templatesDir)) {
+    fs.mkdirSync(templatesDir);
+  }
+  if (!fs.existsSync(configPath)) {
+    const defaultTemplates = [
+      {
+        id: 'strip-3',
+        name: 'Classic Strip',
+        image: 'strip.png',
+        width: 600,
+        height: 1800,
+        slots: [
+          { x: 50, y: 50, w: 500, h: 375 },
+          { x: 50, y: 475, w: 500, h: 375 },
+          { x: 50, y: 900, w: 500, h: 375 }
+        ]
+      },
+      {
+        id: 'grid-2x2',
+        name: 'Square Grid',
+        image: 'grid.png',
+        width: 1200,
+        height: 1200,
+        slots: [
+          { x: 50, y: 50, w: 525, h: 525 },
+          { x: 625, y: 50, w: 525, h: 525 },
+          { x: 50, y: 625, w: 525, h: 525 },
+          { x: 625, y: 625, w: 525, h: 525 }
+        ]
+      }
+    ];
+    fs.writeFileSync(configPath, JSON.stringify(defaultTemplates, null, 2));
+  }
+  if (!fs.existsSync(baseUploadsDir)) {
+    fs.mkdirSync(baseUploadsDir);
+  }
+}
+initializeDirectories();
+
+function handleGetFrames(req, res) {
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    res.json(config);
+  } catch (error) {
+    log.error(`handleGetFrames: ${error}`);
+    res.status(500).json({ error: 'Failed to read templates' });
+  }
 }
 
-// POST /save endpoint handles 'videos', 'images' array field, 'fullVideo' and 'gridFrame'
-app.post('/save', upload.any(), (req, res) => {
+async function handleSave(req, res) {
   try {
-    let images = req.body.images; // array of base64 photos
-    let gridFrame = req.body.gridFrame; // the composited photo strip
-    const frameType = req.body.frameType;
+    let { images, gridFrame, frameType } = req.body;
     const videoFiles = req.files ? req.files.filter(f => f.fieldname === 'videos') : [];
     const fullVideoFile = req.files ? req.files.find(f => f.fieldname === 'fullVideo') : null;
 
-    if (!images) {
-      return res.status(400).json({ error: 'Invalid payload: missing images' });
+    if (!images || (Array.isArray(images) && images.length === 0)) {
+      return res.status(400).json({ error: 'images must be a non-empty array' });
     }
-    if (!Array.isArray(images)) {
-      images = [images];
+    if (!frameType || typeof frameType !== 'string') {
+      return res.status(400).json({ error: 'frameType must be a non-empty string' });
     }
+    
+    if (!Array.isArray(images)) images = [images];
 
     const sessionDirName = `session_${Date.now()}`;
     const sessionDir = path.join(baseUploadsDir, sessionDirName);
@@ -85,23 +90,20 @@ app.post('/save', upload.any(), (req, res) => {
 
     const savedFiles = [];
 
-    // 1. Save Raw Images
     images.forEach((base64String, index) => {
-      const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
+      const base64Data = base64String.replace(BASE64_IMAGE_PREFIX, '');
       const buffer = Buffer.from(base64Data, 'base64');
       const filename = `raw_photo_${index + 1}.jpg`; 
       fs.writeFileSync(path.join(sessionDir, filename), buffer);
       savedFiles.push(filename);
     });
 
-    // 2. Save Grid Frame Photo
     if (gridFrame) {
-      const gridData = gridFrame.replace(/^data:image\/\w+;base64,/, '');
+      const gridData = gridFrame.replace(BASE64_IMAGE_PREFIX, '');
       fs.writeFileSync(path.join(sessionDir, 'grid_frame.jpg'), Buffer.from(gridData, 'base64'));
       savedFiles.push('grid_frame.jpg');
     }
 
-    // 3. Save Raw Videos
     const videoPaths = [];
     videoFiles.forEach((vFile, idx) => {
       const vPath = path.join(sessionDir, `raw_video_${idx + 1}.webm`);
@@ -110,35 +112,27 @@ app.post('/save', upload.any(), (req, res) => {
       videoPaths.push(vPath);
     });
 
-    // Save Full Video
     if (fullVideoFile) {
       fs.writeFileSync(path.join(sessionDir, 'raw_video.webm'), fullVideoFile.buffer);
       savedFiles.push('raw_video.webm');
     }
 
-    // 4. Generate Video Grid Frame via FFMPEG
     if (videoPaths.length > 0 && gridFrame) {
-      const ffmpeg = require('fluent-ffmpeg');
       const gridVideoPath = path.join(sessionDir, 'video_grid_frame.webm');
       const gridFramePath = path.join(sessionDir, 'grid_frame.jpg');
 
-      console.log('Generating Dynamic FFMPEG video grid...');
-      let command = ffmpeg().input(gridFramePath); // [0:v]
-      videoPaths.forEach(vp => {
-        command = command.input(vp); // [1:v], [2:v], ...
-      });
+      log.info('Generating Dynamic FFMPEG video grid...');
+      let command = ffmpeg().input(gridFramePath);
+      videoPaths.forEach(vp => { command = command.input(vp); });
 
-      const configPathLocal = path.join(__dirname, 'templates', 'config.json');
-      const config = JSON.parse(fs.readFileSync(configPathLocal, 'utf8'));
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const template = config.find(t => t.id === frameType);
 
       if (template) {
-         let filterString = [];
-         
+         const filterString = [];
          videoPaths.forEach((vp, idx) => {
             const slot = template.slots[idx];
             if (slot) {
-               // max(W,a*H):max(H,W/a),crop=W:H
                filterString.push(`[${idx+1}:v]scale='max(${slot.w},a*${slot.h})':'max(${slot.h},${slot.w}/a)',crop=${slot.w}:${slot.h}[vid${idx+1}]`);
             }
          });
@@ -156,62 +150,79 @@ app.post('/save', upload.any(), (req, res) => {
          command.complexFilter(filterString)
             .outputOptions(['-map [out]'])
             .save(gridVideoPath)
-            .on('end', () => console.log('Video grid successfully created: ' + gridVideoPath))
-            .on('error', (err) => console.error('FFMPEG generation error:', err));
+            .on('end', () => log.info('Video grid successfully created: ' + gridVideoPath))
+            .on('error', (err) => log.error('FFMPEG generation error: ' + err));
          
          savedFiles.push('video_grid_frame.webm');
       }
     }
 
-    console.log(`Successfully saved session to ${sessionDirName} (${savedFiles.length} outputs).`);
+    log.info(`Successfully saved session to ${sessionDirName} (${savedFiles.length} outputs).`);
     res.status(200).json({ message: 'Session saved successfully', files: savedFiles, session: sessionDirName });
   } catch (error) {
-    console.error('Error saving session:', error);
+    log.error(`handleSave: ${error}`);
     res.status(500).json({ error: 'Failed to save session' });
   }
-});
+}
 
-app.post('/api/templates', upload.single('image'), (req, res) => {
+async function handleSaveTemplate(req, res) {
   try {
-    const configData = JSON.parse(req.body.config);
     const imageFile = req.file;
+    if (!imageFile) return res.status(400).json({ error: 'Missing image' });
+    
+    if (!req.body.config) return res.status(400).json({ error: 'Missing config' });
+    let configData;
+    try {
+      configData = JSON.parse(req.body.config);
+    } catch (e) {
+      log.error(`handleSaveTemplate parse: ${e}`);
+      return res.status(400).json({ error: 'Config must be valid JSON' });
+    }
 
-    if (!imageFile || !configData) {
-      return res.status(400).json({ error: 'Missing image or config' });
+    if (!configData.id || !configData.name || !Array.isArray(configData.slots)) {
+       return res.status(400).json({ error: 'Config must contain id, name, and slots array' });
     }
 
     const filename = `template_${Date.now()}.png`;
-    const imagePath = path.join(__dirname, 'templates', filename);
+    const imagePath = path.join(templatesDir, filename);
     fs.writeFileSync(imagePath, imageFile.buffer);
 
     configData.image = filename;
 
-    const templatesConfPath = path.join(__dirname, 'templates', 'config.json');
     let templatesArray = [];
-    if (fs.existsSync(templatesConfPath)) {
-      templatesArray = JSON.parse(fs.readFileSync(templatesConfPath, 'utf8'));
+    if (fs.existsSync(configPath)) {
+      templatesArray = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
     
-    // Remove if existing ID matched (overwrite feature)
     templatesArray = templatesArray.filter(t => t.id !== configData.id);
     templatesArray.push(configData);
     
-    fs.writeFileSync(templatesConfPath, JSON.stringify(templatesArray, null, 2));
-    console.log(`[Admin] Custom Template ${configData.id} saved.`);
+    fs.writeFileSync(configPath, JSON.stringify(templatesArray, null, 2));
+    log.info(`Custom Template ${configData.id} saved.`);
     res.status(200).json({ message: 'Template saved successfully' });
   } catch (error) {
-    console.error('Template save error:', error);
+    log.error(`handleSaveTemplate: ${error}`);
     res.status(500).json({ error: 'Failed to save template' });
   }
-});
+}
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use('/templates', express.static(templatesDir));
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.get('/api/frames', handleGetFrames);
+app.post('/save', upload.any(), handleSave);
+app.post('/api/templates', upload.single('image'), handleSaveTemplate);
 
 app.listen(PORT, () => {
-  console.log(`Backend server listening at http://localhost:${PORT}`);
+  log.info(`Backend server listening at http://localhost:${PORT}`);
 });
 
-// Cleanup routines checking 12-hour expiration mapped onto target uploads folder
 setInterval(() => {
-  const cutoff = Date.now() - (12 * 60 * 60 * 1000); // 12 hours
+  const cutoff = Date.now() - SESSION_EXPIRY_MS;
   if (fs.existsSync(baseUploadsDir)) {
     const folders = fs.readdirSync(baseUploadsDir);
     for (const folder of folders) {
@@ -220,9 +231,9 @@ setInterval(() => {
         const stats = fs.statSync(folderPath);
         if (stats.mtimeMs < cutoff) {
           fs.rmSync(folderPath, { recursive: true, force: true });
-          console.log(`[Cleanup] Deleted old session: ${folder}`);
+          log.info(`Deleted old session: ${folder}`);
         }
       }
     }
   }
-}, 60 * 10 * 1000); // run every 10 minutes to verify
+}, CLEANUP_INTERVAL_MS);
