@@ -1,2 +1,1 @@
-export * from './dom-helper';
-export * from './screen-renderer';
+export { default as App } from './app';
